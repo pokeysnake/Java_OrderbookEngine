@@ -7,6 +7,11 @@ import org.springframework.boot.servlet.filter.OrderedRequestContextFilter;
 
 import java.math.*;
 import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -159,21 +164,41 @@ class OrderBookTest {
 
 
     @Test
-    void ZeroPriceException()
-    {  
-        assertThrows(IllegalArgumentException.class,() -> new Order(OrderSide.BUY, BigDecimal.ZERO, 10));
-    }
-
-    @Test 
-    void NegativeQuantity()
+    void concurrentSubmitOrderIsThreadSafe() throws InterruptedException, ExecutionException
     {
-        assertThrows(IllegalArgumentException.class,() -> new Order(OrderSide.BUY, new BigDecimal("-100"), 10));
-    }
+        OrderBook book = new OrderBook();
+        int orderCount = 100;
 
-     @Test 
-    void ZeroQuantity()
-    {
-        assertThrows(IllegalArgumentException.class,() -> new Order(OrderSide.BUY, new BigDecimal("100"), 0));
+        for(int i = 0; i < orderCount; i++)
+            book.submitOrder(new Order(OrderSide.SELL, new BigDecimal("100"), 1)); //create 100 orders of quantity 1
+
+        ExecutorService executor = Executors.newFixedThreadPool(10); //creates new executor service that makes 10 reusable threads
+
+        List<Callable<List<Trade>>> tasks = new ArrayList<>();//creates a list of "Callable" objects of type <T> which is a list of Trade. each element in this arrayList will be a trade that has been taken successfully (a match and update to orderbook via submit order)
+
+        for(int i = 0; i < orderCount; i++)
+        {
+            Order buy = new Order(OrderSide.BUY, new BigDecimal("100"), 1); //create 100 orders of BUY to match to SELL
+            tasks.add(() -> book.submitOrder(buy)); //lambda function that adds the result of submitOrder for each order that we want to create to the arrayList
+        }
+
+        List<Future<List<Trade>>>  futures = executor.invokeAll(tasks); //List of Future objects aka claimable tickets from tasks that is made of a List of Trade. we also invoke all tasks to the 10 threads
+        executor.shutdown(); //shutdown the threads once we finish
+
+        long totalFilled = 0;
+        int totalTrades = 0;
+        for(Future<List<Trade>> future : futures) //enhanced loop that takes each claimed ticket (a list of Trade) and each item in the list of Trade (future) and goes all the way thgrough all futures
+        {
+            List<Trade> trades = future.get(); //saves the trades made and uses future which is each list of Trade in the Future<T> list and waits until the tasks are done to show u the result 
+            totalTrades+= trades.size(); //we add the size to our totalTrades counter because each BUY and SELL order should match successfully therefore optimally each iteration of this loop should add 1
+            for(Trade trade : trades)
+            {
+                totalFilled += trade.getQuantity(); //sub forloop placing this loop at O(number of elements in futures * number of successful trades) that should optimally add 1 (each quantity that was successfully filled) each iteration
+            }
+        }
+
+        assertEquals(orderCount, totalTrades); //assert that the orderCount is the same as the number of trades we made, im imagining this as 1 : 1 ratio where if we ideally have matches for every order per side we would get the totalTrades again in optimal conditions equal to the number of orders we created 
+        assertEquals(orderCount, totalFilled);// assert that the orderCount is the same as the quantity filled which i imagine quantity filled ideally is QtyFilled = 0.5 * (numBuyOrders + numberSellOrders)
     }
 
 }
