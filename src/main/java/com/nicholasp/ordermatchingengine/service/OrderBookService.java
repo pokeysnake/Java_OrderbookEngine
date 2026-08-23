@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Application-facing entry point to the order matching engine.
@@ -30,7 +32,7 @@ public class OrderBookService {
     }
 
     /**
-     * Builds an order from raw request values and submits it to the book.
+     * Builds an order from RAW request values and submits it to the book.
      *
      * @param side the side of the order (BUY or SELL)
      * @param price the limit price
@@ -41,5 +43,11 @@ public class OrderBookService {
     {
         Order order = new Order(side, price, quantity);
         return orderBook.submitOrder(order);
+    }
+
+    
+    public Optional<Order> cancelByID(UUID cancelid)
+    {
+        return orderBook.cancelOrder(cancelid);
     }
 }

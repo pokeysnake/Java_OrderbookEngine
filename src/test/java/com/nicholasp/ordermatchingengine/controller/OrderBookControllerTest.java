@@ -32,7 +32,7 @@ class OrderBookControllerTest {
         
         PlaceOrderRequest request = new PlaceOrderRequest(OrderSide.BUY, new BigDecimal("100"), 10);
 
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(post("/api/orders")
             .contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isCreated());
@@ -40,10 +40,10 @@ class OrderBookControllerTest {
     }
 
     @Test
-    void GlobalHandlerConvertsto400() throws Exception
+    void globalHandlerConvertsTo400() throws Exception
     {
         PlaceOrderRequest request = new PlaceOrderRequest(OrderSide.BUY, BigDecimal.ZERO, 10);
-        mockMvc.perform(post("/orders")
+        mockMvc.perform(post("/api/orders")
             .contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isBadRequest());

@@ -201,4 +201,31 @@ class OrderBookTest {
         assertEquals(orderCount, totalFilled);// assert that the orderCount is the same as the quantity filled which i imagine quantity filled ideally is QtyFilled = 0.5 * (numBuyOrders + numberSellOrders)
     }
 
+    @Test
+    void successfulCancel ()
+    {
+        OrderBook book = new OrderBook();
+
+        Order cancel = new Order(OrderSide.SELL, new BigDecimal("100"),10);
+        Order buy = new Order(OrderSide.BUY, new BigDecimal("100"),10);
+
+        List<Trade> resting = book.submitOrder(cancel);
+        assertEquals(Optional.of(cancel), book.cancelOrder(cancel.getId()));
+        List<Trade> matching = book.submitOrder(buy);
+        assertEquals(0, matching.size());
+
+    }
+
+    @Test
+    void cancelNonexistantID()
+    {
+        OrderBook book = new OrderBook();
+        Order order = new Order(OrderSide.SELL, new BigDecimal("100"), 10);
+        List<Trade> trades = book.submitOrder(order);
+        Optional<Order> cancelled = book.cancelOrder(UUID.randomUUID());
+        assertEquals(0, trades.size());
+        assertEquals(Optional.empty(), cancelled);
+
+    }
+
 }

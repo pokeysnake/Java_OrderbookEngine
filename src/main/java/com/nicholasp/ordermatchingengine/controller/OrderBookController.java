@@ -1,20 +1,24 @@
 package com.nicholasp.ordermatchingengine.controller;
 
+import com.nicholasp.ordermatchingengine.model.Order;
 import com.nicholasp.ordermatchingengine.model.OrderSide;
 import com.nicholasp.ordermatchingengine.model.Trade;
 import com.nicholasp.ordermatchingengine.service.OrderBookService;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
-import java.util.List;
+import java.util.*;
 
 @RestController
-@RequestMapping("/orders")
+@RequestMapping("/api/orders")
 public class OrderBookController {
 
     private final OrderBookService orderBookService; //constructor injection
@@ -29,11 +33,22 @@ public class OrderBookController {
 
 
     //how are we going to map on the POST aka the @PostMapping
+    //would use the 201 created code for the request if it is valid via ResponseEntity
     @PostMapping
     public ResponseEntity<List<Trade>> placeOrder(@RequestBody PlaceOrderRequest request)
     {
         //return the same type of orderBookService with parameters from auto-gen methods request.param()
         List<Trade> trades = orderBookService.placeOrder(request.side(), request.price(), request.quantity());
         return ResponseEntity.status(HttpStatus.CREATED).body(trades);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Order> cancelOrder(@PathVariable UUID id)
+    {
+        //if present, turn into a 200 with the order, otherwise 404
+        
+        return orderBookService.cancelByID(id)
+            .map(order -> ResponseEntity.ok(order))
+            .orElse(ResponseEntity.notFound().build());
     }
 }

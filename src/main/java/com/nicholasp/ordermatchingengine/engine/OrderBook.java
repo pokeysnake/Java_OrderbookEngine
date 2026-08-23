@@ -136,4 +136,50 @@ public class OrderBook {
 
         return trades;
     }
+
+
+    public synchronized Optional<Order> cancelOrder(UUID cancelID)
+    {
+        Iterator<Map.Entry<BigDecimal, Deque<Order>>> buyLevels = buyOrders.entrySet().iterator(); //creates an iterator of the elements in each orderbook side
+        Iterator<Map.Entry<BigDecimal, Deque<Order>>> sellLevels = sellOrders.entrySet().iterator();
+        while(buyLevels.hasNext())//while the buyOrders has values (price levels) to iterator through
+        {
+            Map.Entry<BigDecimal, Deque<Order>> level = buyLevels.next(); //we get the level that we are traversing 
+            Iterator<Order> orders = level.getValue().iterator(); //we create another iterator to traverse each element in the value of the key:value pair for each price:deque
+            while(orders.hasNext()) //while we have elements/orders to traverse
+            {
+                Order order = orders.next(); //save the current one to a var to check parameter values
+                if(order.getId().equals(cancelID)) //if the current order's id is the same as the id that we want to cancel
+                {
+                    orders.remove(); //we can safely remove that order
+                    if(level.getValue().isEmpty()) //if the level that we are traversing no longer has elements in the deque of orders
+                    {
+                        buyLevels.remove(); //remove that level from the orderbook's respective side (in this case buyorders)
+                    }
+                    return Optional.of(order); //return null if its not present, otherwise return order
+                }
+            }
+        }
+
+        while(sellLevels.hasNext())
+        {
+            Map.Entry<BigDecimal, Deque<Order>> level = sellLevels.next();
+            Iterator<Order> orders = level.getValue().iterator();
+            while(orders.hasNext())
+            {
+                Order order = orders.next();
+                if(order.getId().equals(cancelID))
+                {
+                    orders.remove();
+                    if(level.getValue().isEmpty())
+                    {
+                        sellLevels.remove();
+                    }
+                    return Optional.of(order);
+                }
+            }
+        }
+
+        return Optional.empty(); //return an empty Optional instance directly
+    }
 }
