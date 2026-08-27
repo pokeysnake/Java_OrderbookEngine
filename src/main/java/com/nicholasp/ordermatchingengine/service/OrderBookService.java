@@ -4,9 +4,13 @@ import com.nicholasp.ordermatchingengine.engine.OrderBook;
 import com.nicholasp.ordermatchingengine.model.Order;
 import com.nicholasp.ordermatchingengine.model.OrderSide;
 import com.nicholasp.ordermatchingengine.model.Trade;
+import com.nicholasp.ordermatchingengine.repository.TradeEntity;
+import com.nicholasp.ordermatchingengine.repository.TradeRepository;
+
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -25,11 +29,15 @@ import java.util.UUID;
 public class OrderBookService {
 
     private final OrderBook orderBook;
+    private final TradeRepository tradeRepository;
 
-    public OrderBookService()
+    public OrderBookService(TradeRepository tradeRepository)
     {
         this.orderBook = new OrderBook();
+        this.tradeRepository = tradeRepository;
     }
+
+    
 
     /**
      * The outcome of placing an order: the id assigned to it (so it can
@@ -50,6 +58,19 @@ public class OrderBookService {
     {
         Order order = new Order(side, price, quantity);
         List<Trade> trades = orderBook.submitOrder(order);
+
+        for(Trade trade : trades)
+        {
+            UUID e_buyid = trade.getBuyOrderId();
+            UUID e_sellid = trade.getSellOrderId();
+            BigDecimal e_Price = trade.getPrice();
+            Long e_quantity = trade.getQuantity();
+            Instant e_time = trade.getTimestamp();
+
+            TradeEntity entity = new TradeEntity(e_buyid,e_sellid,e_Price,e_quantity,e_time);
+            tradeRepository.save(entity);
+        }
+
         return new PlaceOrderResult(order.getId(), trades);
     }
 
@@ -57,5 +78,15 @@ public class OrderBookService {
     public Optional<Order> cancelByID(UUID cancelid)
     {
         return orderBook.cancelOrder(cancelid);
+    }
+
+    public OrderBook.BookDepth getBookDepth()
+    {
+        return orderBook.getBookDepth();
+    }
+
+    public List<TradeEntity> getAllTrades()
+    {
+        return tradeRepository.findAll();
     }
 }

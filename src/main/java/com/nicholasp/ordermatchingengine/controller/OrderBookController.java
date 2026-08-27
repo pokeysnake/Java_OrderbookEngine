@@ -1,12 +1,15 @@
 package com.nicholasp.ordermatchingengine.controller;
 
+import com.nicholasp.ordermatchingengine.engine.OrderBook;
 import com.nicholasp.ordermatchingengine.model.Order;
 import com.nicholasp.ordermatchingengine.model.OrderSide;
+import com.nicholasp.ordermatchingengine.repository.TradeEntity;
 import com.nicholasp.ordermatchingengine.service.OrderBookService;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -50,4 +53,17 @@ public class OrderBookController {
             .map(order -> ResponseEntity.ok(order))
             .orElse(ResponseEntity.notFound().build());
     }
+
+    @GetMapping("/book")
+    public ResponseEntity<OrderBook.BookDepth> getBookDepth()
+    {
+        return ResponseEntity.ok(orderBookService.getBookDepth());
+    }
+
+    @GetMapping("/trades")
+    public ResponseEntity<List<TradeEntity>> getAllTrades()
+    {
+        return ResponseEntity.ok(orderBookService.getAllTrades());
+    }
+
 }
