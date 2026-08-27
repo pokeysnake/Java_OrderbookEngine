@@ -228,4 +228,20 @@ class OrderBookTest {
 
     }
 
+
+    @Test
+    void validBookDepth()
+    {
+        OrderBook book = new OrderBook();
+        book.submitOrder(new Order(OrderSide.SELL, new BigDecimal("100"), 10));
+        book.submitOrder(new Order(OrderSide.SELL, new BigDecimal("100"), 10));
+        book.submitOrder(new Order(OrderSide.SELL, new BigDecimal("99"), 10));
+
+        OrderBook.BookDepth depth = book.getBookDepth();
+        assertEquals(2, depth.sellLevels().size());
+        assertEquals(0, depth.sellLevels().get(1).price().compareTo(new BigDecimal("100")));
+        assertEquals(20, depth.sellLevels().get(1).totalQuantity());
+
+        
+    }
 }

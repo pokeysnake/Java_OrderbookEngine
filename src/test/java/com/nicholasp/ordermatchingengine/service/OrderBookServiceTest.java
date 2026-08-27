@@ -4,7 +4,6 @@ import com.nicholasp.ordermatchingengine.model.*;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -14,12 +13,14 @@ class OrderBookServiceTest {
     void placeOrderTest()
     {
         OrderBookService service = new OrderBookService();
-        List<Trade> resting = service.placeOrder(OrderSide.SELL, new BigDecimal("100"), 50);
-        List<Trade> matching = service.placeOrder(OrderSide.BUY,new BigDecimal("100"), 50);
+        OrderBookService.PlaceOrderResult resting = service.placeOrder(OrderSide.SELL, new BigDecimal("100"), 50);
+        OrderBookService.PlaceOrderResult matching = service.placeOrder(OrderSide.BUY, new BigDecimal("100"), 50);
 
-        assertEquals(1, matching.size());
-        assertTrue(resting.isEmpty());
+        assertNotNull(resting.orderId());
+        assertTrue(resting.trades().isEmpty());
 
+        assertNotNull(matching.orderId());
+        assertEquals(1, matching.trades().size());
     }
     
 

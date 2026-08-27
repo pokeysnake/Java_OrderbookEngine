@@ -2,7 +2,6 @@ package com.nicholasp.ordermatchingengine.controller;
 
 import com.nicholasp.ordermatchingengine.model.Order;
 import com.nicholasp.ordermatchingengine.model.OrderSide;
-import com.nicholasp.ordermatchingengine.model.Trade;
 import com.nicholasp.ordermatchingengine.service.OrderBookService;
 
 import org.springframework.http.HttpStatus;
@@ -35,11 +34,11 @@ public class OrderBookController {
     //how are we going to map on the POST aka the @PostMapping
     //would use the 201 created code for the request if it is valid via ResponseEntity
     @PostMapping
-    public ResponseEntity<List<Trade>> placeOrder(@RequestBody PlaceOrderRequest request)
+    public ResponseEntity<OrderBookService.PlaceOrderResult> placeOrder(@RequestBody PlaceOrderRequest request)
     {
         //return the same type of orderBookService with parameters from auto-gen methods request.param()
-        List<Trade> trades = orderBookService.placeOrder(request.side(), request.price(), request.quantity());
-        return ResponseEntity.status(HttpStatus.CREATED).body(trades);
+        OrderBookService.PlaceOrderResult result = orderBookService.placeOrder(request.side(), request.price(), request.quantity());
+        return ResponseEntity.status(HttpStatus.CREATED).body(result);
     }
 
     @DeleteMapping("/{id}")

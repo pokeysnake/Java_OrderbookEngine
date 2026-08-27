@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 @WebMvcTest(OrderBookController.class)
 @Import(OrderBookService.class)
@@ -47,5 +48,31 @@ class OrderBookControllerTest {
             .contentType(MediaType.APPLICATION_JSON)
             .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void cancelEndPoint() throws Exception
+    {
+        PlaceOrderRequest request = new PlaceOrderRequest(OrderSide.BUY, new BigDecimal("100"), 10);
+        
+       String responseBody = mockMvc.perform(post("/api/orders")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        String orderId = objectMapper.readTree(responseBody).get("orderId").asString();
+
+        mockMvc.perform(delete("/api/orders/" + orderId))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    void cancelNonexistantID() throws Exception
+    {
+        mockMvc.perform(delete("/api/orders/" + UUID.randomUUID()))
+            .andExpect(status().isNotFound());
     }
 }
