@@ -83,6 +83,8 @@ docker compose up -d          # PostgreSQL 16 on :5432
 
 The schema is created automatically via `ddl-auto=update`. Actuator is on the classpath for health and metrics.
 
+Once it's up, open [http://localhost:8080](http://localhost:8080) for a live dashboard: book depth, the trade tape, a form to place and cancel orders, and a reference for every REST route and WebSocket topic, all updating in real time off the same `/topic/book` and `/topic/trades` broadcasts described below.
+
 ```bash
 ./mvnw test
 ```

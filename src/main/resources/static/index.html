@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Order Matching Engine</title>
+<style>
+  :root {
+    --bg: #14171c;
+    --panel: #1b1f26;
+    --panel-2: #21262f;
+    --line: #2c333d;
+    --text: #d6dae0;
+    --muted: #8b95a3;
+    --buy: #4caf72;
+    --sell: #e2564d;
+    --accent: #d9a441;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  .status { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sell); }
+  .dot.on { background: var(--buy); }
+
+  nav { display: flex; gap: 2px; padding: 0 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  nav button {
+    background: none; border: none; color: var(--muted);
+    padding: 10px 16px; cursor: pointer; font-size: 13px;
+    border-bottom: 2px solid transparent; font-family: inherit;
+  }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  main { padding: 20px; max-width: 1100px; margin: 0 auto; }
+  .tab { display: none; }
+  .tab.active { display: block; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .panel h2 {
+    margin: 0; padding: 10px 14px; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+    border-bottom: 1px solid var(--line); background: var(--panel-2);
+  }
+  .panel .body { padding: 14px; }
+
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; table-layout: fixed; }
+  th {
+    text-align: center; padding: 8px 10px; color: var(--muted);
+    font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    border-bottom: 1px solid var(--line);
+  }
+  th:first-child, td:first-child { text-align: left; }
+  td { padding: 7px 10px; text-align: center; }
+  tbody tr { border-bottom: 1px solid var(--line); }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: var(--panel-2); }
+  .buy { color: var(--buy); }
+  .sell { color: var(--sell); }
+  .empty { padding: 20px 14px; color: var(--muted); font-style: italic; font-size: 13px; }
+
+  .spread {
+    display: flex; justify-content: space-between; padding: 8px 14px;
+    background: var(--panel-2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+  }
+
+  .scroll { max-height: 340px; overflow-y: auto; }
+
+  form { display: flex; flex-direction: column; gap: 10px; }
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+  input, select {
+    width: 100%; padding: 8px 10px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 4px; font-family: var(--mono); font-size: 13px;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  button.action {
+    padding: 9px 14px; border: none; border-radius: 4px; cursor: pointer;
+    font-size: 13px; font-weight: 600; font-family: inherit; color: #12151a;
+  }
+  button.action:hover { filter: brightness(1.1); }
+  .btn-buy { background: var(--buy); }
+  .btn-sell { background: var(--sell); }
+  .btn-cancel { background: var(--accent); }
+
+  .result {
+    margin-top: 12px; padding: 10px; border-radius: 4px; font-family: var(--mono);
+    font-size: 12px; white-space: pre-wrap; word-break: break-all; display: none;
+  }
+  .result.ok { display: block; background: #1e2b22; border: 1px solid var(--buy); }
+  .result.err { display: block; background: #2b1e1e; border: 1px solid var(--sell); }
+
+  .ids { list-style: none; margin: 10px 0 0; padding: 0; font-family: var(--mono); font-size: 12px; }
+  .ids li {
+    padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; margin-bottom: 5px;
+    cursor: pointer; display: flex; justify-content: space-between; gap: 8px;
+  }
+  .ids li:hover { border-color: var(--accent); background: var(--panel-2); }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 8px; }
+
+  .route { display: flex; align-items: baseline; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .route:last-child { border-bottom: none; }
+  .method {
+    font-family: var(--mono); font-size: 11px; font-weight: 700; padding: 2px 7px;
+    border-radius: 3px; min-width: 58px; text-align: center; color: #12151a;
+  }
+  .get { background: #4a8fd4; }
+  .post { background: var(--buy); }
+  .delete { background: var(--sell); }
+  .ws { background: #9b7ac9; }
+  .path { font-family: var(--mono); font-size: 13px; }
+  .desc { color: var(--muted); font-size: 12px; margin-left: auto; text-align: right; }
+  code { font-family: var(--mono); background: var(--panel-2); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .note { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Order Matching Engine</h1>
+  <div class="status"><span class="dot" id="dot"></span><span id="conn">connecting…</span></div>
+</header>
+
+<nav>
+  <button class="active" data-tab="book">Order Book</button>
+  <button data-tab="trades">Trades</button>
+  <button data-tab="order">Place / Cancel</button>
+  <button data-tab="api">API Reference</button>
+</nav>
+
+<main>
+
+  <section class="tab active" id="tab-book">
+    <div class="panel">
+      <h2>Book Depth &mdash; live</h2>
+      <table>
+        <thead><tr><th>Side</th><th>Price</th><th>Quantity</th></tr></thead>
+        <tbody id="asks"></tbody>
+      </table>
+      <div class="spread">
+        <span>Best bid <b id="bestBid" class="buy">&mdash;</b></span>
+        <span>Spread <b id="spread">&mdash;</b></span>
+        <span>Best ask <b id="bestAsk" class="sell">&mdash;</b></span>
+      </div>
+      <table>
+        <tbody id="bids"></tbody>
+      </table>
+      <div class="empty" id="bookEmpty">Book is empty. Place an order to see it rest here.</div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-trades">
+    <div class="panel">
+      <h2>Trade Tape &mdash; live</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Seq</th><th>Price</th><th>Qty</th><th>Time</th></tr></thead>
+          <tbody id="tape"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="tapeEmpty">No trades yet.</div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-order">
+    <div class="grid">
+      <div class="panel">
+        <h2>Place Order</h2>
+        <div class="body">
+          <form id="placeForm">
+            <div class="row">
+              <div>
+                <label for="side">Side</label>
+                <select id="side"><option value="BUY">BUY</option><option value="SELL">SELL</option></select>
+              </div>
+              <div>
+                <label for="price">Price</label>
+                <input id="price" type="number" step="0.01" min="0.01" value="100.00" required>
+              </div>
+              <div>
+                <label for="qty">Quantity</label>
+                <input id="qty" type="number" step="1" min="1" value="10" required>
+              </div>
+            </div>
+            <button type="submit" class="action btn-buy" id="placeBtn">Place Order</button>
+          </form>
+          <div class="result" id="placeResult"></div>
+          <button type="button" class="action btn-cancel" id="populateBtn" style="margin-top:14px;width:100%">Populate Sample Data</button>
+          <p class="hint">Fires 10 randomized orders (price 95&ndash;105, qty 1&ndash;20) to seed the book with some depth and a few matched trades.</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Cancel Order</h2>
+        <div class="body">
+          <form id="cancelForm">
+            <div>
+              <label for="cancelId">Order ID</label>
+              <input id="cancelId" type="text" placeholder="paste a UUID, or click one below" required>
+            </div>
+            <button type="submit" class="action btn-cancel">Cancel Order</button>
+          </form>
+          <div class="result" id="cancelResult"></div>
+          <p class="hint">Resting orders placed from this page (click to fill the box):</p>
+          <ul class="ids" id="restingIds"></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-api">
+    <div class="grid">
+      <div class="panel">
+        <h2>REST Endpoints</h2>
+        <div class="body">
+          <div class="route"><span class="method post">POST</span><span class="path">/api/orders</span><span class="desc">Place an order &rarr; 201</span></div>
+          <div class="route"><span class="method delete">DELETE</span><span class="path">/api/orders/{id}</span><span class="desc">Cancel &rarr; 200 or 404</span></div>
+          <div class="route"><span class="method get">GET</span><span class="path">/api/orders/book</span><span class="desc">Current book depth</span></div>
+          <div class="route"><span class="method get">GET</span><span class="path">/api/trades</span><span class="desc">All persisted trades</span></div>
+          <div class="route"><span class="method get">GET</span><span class="path">/actuator/health</span><span class="desc">Health check</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>WebSocket / STOMP</h2>
+        <div class="body">
+          <div class="route"><span class="method ws">WS</span><span class="path">/ws</span><span class="desc">STOMP connect endpoint</span></div>
+          <div class="route"><span class="method ws">SUB</span><span class="path">/topic/trades</span><span class="desc">Each trade as it executes</span></div>
+          <div class="route"><span class="method ws">SUB</span><span class="path">/topic/book</span><span class="desc">Depth snapshot per place/cancel</span></div>
+          <p class="hint">This page is subscribed to both topics right now &mdash; the Order Book and Trades tabs update from these broadcasts, not from polling.</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Request Body &mdash; POST /api/orders</h2>
+        <div class="body">
+          <p class="note">Price and quantity must both be positive; side must be BUY or SELL. Invalid input returns 400 with a structured error body.</p>
+          <pre style="margin:0"><code>{ "side": "BUY", "price": 100.50, "quantity": 25 }</code></pre>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Matching Rules</h2>
+        <div class="body">
+          <p class="note" style="margin-bottom:8px">Price priority: best bid is the highest, best ask the lowest.</p>
+          <p class="note" style="margin-bottom:8px">Time priority: orders at the same price fill oldest-first.</p>
+          <p class="note" style="margin-bottom:8px">Trades execute at the <b>resting</b> order's price, not the incoming one.</p>
+          <p class="note" style="margin:0">Every trade carries a monotonic <code>sequenceNum</code> for true match order.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// ---- tabs ----
+document.querySelectorAll('nav button').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    document.querySelectorAll('nav button').forEach(function (b) { b.classList.remove('active'); });
+    document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ---- rendering ----
+var tradeCount = 0;
+
+function fmt(n) { return Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+function renderBook(depth) {
+  var bids = depth.buyLevels || [];
+  var asks = depth.sellLevels || [];
+
+  // Asks are lowest-first from the server; reverse so the best ask sits
+  // closest to the spread, the way a ladder is normally read.
+  var asksHtml = asks.slice().reverse().map(function (l) {
+    return '<tr><td class="sell">ASK</td><td>' + fmt(l.price) + '</td><td>' + l.totalQuantity + '</td></tr>';
+  }).join('');
+  var bidsHtml = bids.map(function (l) {
+    return '<tr><td class="buy">BID</td><td>' + fmt(l.price) + '</td><td>' + l.totalQuantity + '</td></tr>';
+  }).join('');
+
+  document.getElementById('asks').innerHTML = asksHtml;
+  document.getElementById('bids').innerHTML = bidsHtml;
+  document.getElementById('bookEmpty').style.display = (bids.length || asks.length) ? 'none' : 'block';
+
+  var bb = bids.length ? Number(bids[0].price) : null;
+  var ba = asks.length ? Number(asks[0].price) : null;
+  document.getElementById('bestBid').textContent = bb !== null ? fmt(bb) : '—';
+  document.getElementById('bestAsk').textContent = ba !== null ? fmt(ba) : '—';
+  document.getElementById('spread').textContent = (bb !== null && ba !== null) ? fmt(ba - bb) : '—';
+}
+
+function addTrade(t, prepend) {
+  var tape = document.getElementById('tape');
+  var tr = document.createElement('tr');
+  var time = t.timestamp ? new Date(t.timestamp).toLocaleTimeString() : '';
+  tr.innerHTML = '<td>' + t.sequenceNum + '</td><td>' + fmt(t.price) + '</td><td>' + t.quantity + '</td><td>' + time + '</td>';
+  if (prepend && tape.firstChild) { tape.insertBefore(tr, tape.firstChild); } else { tape.appendChild(tr); }
+  tradeCount++;
+  document.getElementById('tapeEmpty').style.display = 'none';
+}
+
+// ---- initial state over REST, so the page isn't blank before the first broadcast ----
+fetch('/api/orders/book').then(function (r) { return r.json(); }).then(renderBook).catch(function () {});
+fetch('/api/trades').then(function (r) { return r.json(); }).then(function (list) {
+  list.sort(function (a, b) { return b.sequenceNum - a.sequenceNum; });
+  list.slice(0, 100).forEach(function (t) { addTrade(t, false); });
+}).catch(function () {});
+
+// ---- minimal STOMP over raw WebSocket (no library, nothing external to load) ----
+var ws = null, subId = 0;
+var NULL = String.fromCharCode(0); // STOMP frames are NULL-terminated
+
+function stompFrame(command, headers, body) {
+  var out = command + '\n';
+  for (var k in headers) { out += k + ':' + headers[k] + '\n'; }
+  return out + '\n' + (body || '') + NULL;
+}
+
+function parseFrame(data) {
+  if (data.charAt(data.length - 1) === NULL) data = data.slice(0, -1);
+  var split = data.indexOf('\n\n');
+  if (split === -1) return null;
+  var lines = data.substring(0, split).split('\n');
+  var headers = {};
+  for (var i = 1; i < lines.length; i++) {
+    var c = lines[i].indexOf(':');
+    if (c > -1) headers[lines[i].substring(0, c)] = lines[i].substring(c + 1);
+  }
+  return { command: lines[0], headers: headers, body: data.substring(split + 2) };
+}
+
+function setStatus(text, ok) {
+  document.getElementById('conn').textContent = text;
+  document.getElementById('dot').classList.toggle('on', !!ok);
+}
+
+function connect() {
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+  ws.onopen = function () {
+    ws.send(stompFrame('CONNECT', { 'accept-version': '1.2', host: location.hostname, 'heart-beat': '0,0' }));
+  };
+
+  ws.onmessage = function (e) {
+    if (e.data === '\n') return; // heartbeat
+    var f = parseFrame(e.data);
+    if (!f) return;
+
+    if (f.command === 'CONNECTED') {
+      setStatus('live', true);
+      ws.send(stompFrame('SUBSCRIBE', { id: 'sub-' + (subId++), destination: '/topic/book' }));
+      ws.send(stompFrame('SUBSCRIBE', { id: 'sub-' + (subId++), destination: '/topic/trades' }));
+    } else if (f.command === 'MESSAGE') {
+      var payload;
+      try { payload = JSON.parse(f.body); } catch (err) { return; }
+      if (f.headers.destination === '/topic/book') { renderBook(payload); }
+      else if (f.headers.destination === '/topic/trades') { addTrade(payload, true); }
+    }
+  };
+
+  ws.onclose = function () {
+    setStatus('disconnected, retrying…', false);
+    setTimeout(connect, 3000);
+  };
+  ws.onerror = function () { try { ws.close(); } catch (err) {} };
+}
+connect();
+
+// ---- place / cancel ----
+function showResult(el, text, ok) {
+  el.textContent = text;
+  el.className = 'result ' + (ok ? 'ok' : 'err');
+}
+
+var restingIds = [];
+function renderRestingIds() {
+  document.getElementById('restingIds').innerHTML = restingIds.map(function (o) {
+    return '<li data-id="' + o.id + '"><span>' + o.id.substring(0, 8) + '…</span><span>' +
+           o.side + ' ' + fmt(o.price) + ' × ' + o.qty + '</span></li>';
+  }).join('');
+}
+document.getElementById('restingIds').addEventListener('click', function (e) {
+  var li = e.target.closest('li');
+  if (li) document.getElementById('cancelId').value = li.dataset.id;
+});
+
+document.getElementById('side').addEventListener('change', function () {
+  var btn = document.getElementById('placeBtn');
+  var isBuy = this.value === 'BUY';
+  btn.className = 'action ' + (isBuy ? 'btn-buy' : 'btn-sell');
+});
+
+function placeOrder(side, price, qty) {
+  return fetch('/api/orders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ side: side, price: Number(price), quantity: Number(qty) })
+  }).then(function (r) {
+    return r.json().then(function (b) { return { status: r.status, body: b }; });
+  }).then(function (res) {
+    if (res.status === 201 && !res.body.trades.length) {
+      restingIds.unshift({ id: res.body.orderId, side: side, price: price, qty: qty });
+      restingIds = restingIds.slice(0, 8);
+      renderRestingIds();
+    }
+    return res;
+  });
+}
+
+document.getElementById('placeForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var side = document.getElementById('side').value;
+  var price = document.getElementById('price').value;
+  var qty = document.getElementById('qty').value;
+  var el = document.getElementById('placeResult');
+
+  placeOrder(side, price, qty).then(function (res) {
+    if (res.status === 201) {
+      var n = res.body.trades.length;
+      showResult(el, 'Placed ' + res.body.orderId + '\n' +
+        (n ? n + ' trade' + (n === 1 ? '' : 's') + ' executed' : 'No match — resting in the book'), true);
+    } else {
+      showResult(el, (res.body.message || 'Error') + ' (' + res.status + ')', false);
+    }
+  }).catch(function (err) { showResult(el, 'Request failed: ' + err, false); });
+});
+
+document.getElementById('populateBtn').addEventListener('click', function () {
+  var btn = this;
+  var el = document.getElementById('placeResult');
+  btn.disabled = true;
+  btn.textContent = 'Populating…';
+
+  var orders = [];
+  for (var i = 0; i < 10; i++) {
+    orders.push({
+      side: Math.random() < 0.5 ? 'BUY' : 'SELL',
+      price: (95 + Math.random() * 10).toFixed(2),
+      qty: 1 + Math.floor(Math.random() * 20)
+    });
+  }
+
+  // Sequential, not Promise.all — these are meant to land in a readable
+  // order on the trade tape, and price-time priority depends on arrival order.
+  var placed = 0, matched = 0;
+  function next() {
+    if (orders.length === 0) {
+      showResult(el, 'Populated ' + placed + ' orders (' + matched + ' generated a trade)', true);
+      btn.disabled = false;
+      btn.textContent = 'Populate Sample Data';
+      return;
+    }
+    var o = orders.shift();
+    placeOrder(o.side, o.price, o.qty).then(function (res) {
+      if (res.status === 201) {
+        placed++;
+        if (res.body.trades.length) matched++;
+      }
+      next();
+    }).catch(next);
+  }
+  next();
+});
+
+document.getElementById('cancelForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var id = document.getElementById('cancelId').value.trim();
+  var el = document.getElementById('cancelResult');
+
+  fetch('/api/orders/' + encodeURIComponent(id), { method: 'DELETE' }).then(function (r) {
+    if (r.status === 404) { showResult(el, 'No resting order with that id (404)', false); return; }
+    if (!r.ok) { showResult(el, 'Error ' + r.status, false); return; }
+    return r.json().then(function (o) {
+      showResult(el, 'Cancelled ' + o.id + '\n' + o.side + ' ' + fmt(o.price) +
+        ', ' + o.remainingQuantity + ' unfilled', true);
+      restingIds = restingIds.filter(function (x) { return x.id !== id; });
+      renderRestingIds();
+      document.getElementById('cancelId').value = '';
+    });
+  }).catch(function (err) { showResult(el, 'Request failed: ' + err, false); });
+});
+</script>
+
+</body>
+</html>
