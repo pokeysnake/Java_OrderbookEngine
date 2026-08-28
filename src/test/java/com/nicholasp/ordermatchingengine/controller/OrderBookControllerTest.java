@@ -5,6 +5,7 @@ import com.nicholasp.ordermatchingengine.model.OrderSide;
 import com.nicholasp.ordermatchingengine.repository.TradeRepository;
 import com.nicholasp.ordermatchingengine.service.OrderBookService;
 import org.junit.jupiter.api.Test;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -31,6 +32,9 @@ class OrderBookControllerTest {
 
     @MockitoBean
     private TradeRepository tradeRepository;
+
+    @MockitoBean
+    private SimpMessagingTemplate messagingTemplate;
 
     @Test
     void placeOrderReturns201() throws Exception

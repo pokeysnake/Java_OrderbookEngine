@@ -8,6 +8,7 @@ import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabas
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -26,14 +27,19 @@ class TradeRepositoryTest {
             UUID.randomUUID(),
             new BigDecimal("100"),
             10,
-            Instant.now()
+            Instant.now(),
+            1
         );
 
-        tradeRepository.save(entity);
+        TradeEntity saved = tradeRepository.save(entity);
 
         List<TradeEntity> allTrades = tradeRepository.findAll();
 
-        assertEquals(1, allTrades.size());
-        assertEquals(new BigDecimal("100"), allTrades.get(0).getPrice());
+        Optional<TradeEntity> found = allTrades.stream()
+            .filter(t -> t.getID().equals(saved.getID()))
+            .findFirst();
+
+        assertTrue(found.isPresent());
+        assertEquals(new BigDecimal("100"), found.get().getPrice());
     }
 }

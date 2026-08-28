@@ -21,15 +21,22 @@ public class TradeEntity {
     
     private BigDecimal price;
     private long quantity;
+    private long sequenceNum;
 
     @Column(name = "timestamp", nullable = false)
     private Instant timestamp;
 
-    //no args contstrutor 
+    //no args contstrutor
     public TradeEntity() {}
 
+    //ID
+    public UUID getID()
+    {
+        return id;
+    }
+
     //all args constructor
-    public TradeEntity(UUID buyOrderID, UUID sellOrderID, BigDecimal price, long quantity, Instant timestamp)
+    public TradeEntity(UUID buyOrderID, UUID sellOrderID, BigDecimal price, long quantity, Instant timestamp, long sequenceNum)
     {
          if(buyOrderID == null)
             throw new IllegalArgumentException("Buy order ID is required");
@@ -48,24 +55,25 @@ public class TradeEntity {
         this.price = price;
         this.quantity = quantity;
         this.timestamp = Instant.now();
+        this.sequenceNum = sequenceNum;
     }
 
     //BUY ID
-    public UUID getBuyOrderId()
+    public UUID getBuyOrderID()
     {
         return buyOrderID;
     }
-    public void setBuyOrderId(UUID buyOrderID)
+    public void setBuyOrderID(UUID buyOrderID)
     {
         this.buyOrderID = buyOrderID;
     }
 
     //SELL ID
-    public UUID getSellOrderId()
+    public UUID getSellOrderID()
     {
         return sellOrderID;
     }
-    public void setSellOrderId(UUID sellOrderID)
+    public void setSellOrderID(UUID sellOrderID)
     {
         this.sellOrderID = sellOrderID;
     }
@@ -99,4 +107,15 @@ public class TradeEntity {
     {
         this.timestamp = timestamp;
     }
+
+    //SEQUENCE NUM
+    public long getSequenceNum()
+    {
+        return sequenceNum;
+    }
+    public void setSequenceNum(long sequenceNum)
+    {
+        this.sequenceNum = sequenceNum;
+    }
+
 }

@@ -40,6 +40,11 @@ public class OrderBook {
     // need exclusive access since they mutate the same maps/deques.
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
+    // Assigns each Trade a position in true match order. Only ever touched
+    // while holding the write lock, so its ordering is as reliable as the
+    // lock itself.
+    private long sequenceNum = 0;
+
     public OrderBook() {
         this.buyOrders = new TreeMap<>(Comparator.reverseOrder());
         this.sellOrders = new TreeMap<>();
@@ -130,7 +135,8 @@ public class OrderBook {
 
                 // Trade executes at the resting order's price - it was already committed
                 // to the book, so the incoming (taker) order gets that price, not its own.
-                Trade trade = new Trade(buySideID, sellSideID, restingOrder.getPrice(), fillQty);
+                sequenceNum++;
+                Trade trade = new Trade(buySideID, sellSideID, restingOrder.getPrice(), fillQty, sequenceNum);
                 trades.add(trade);
 
                 // Resting order fully consumed - pop it off the front of its queue.

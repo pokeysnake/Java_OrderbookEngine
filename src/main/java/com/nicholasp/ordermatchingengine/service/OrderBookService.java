@@ -7,6 +7,7 @@ import com.nicholasp.ordermatchingengine.model.Trade;
 import com.nicholasp.ordermatchingengine.repository.TradeEntity;
 import com.nicholasp.ordermatchingengine.repository.TradeRepository;
 
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -30,11 +31,13 @@ public class OrderBookService {
 
     private final OrderBook orderBook;
     private final TradeRepository tradeRepository;
+    private final SimpMessagingTemplate messagingTemplate;
 
-    public OrderBookService(TradeRepository tradeRepository)
+    public OrderBookService(TradeRepository tradeRepository, SimpMessagingTemplate messagingTemplate)
     {
         this.orderBook = new OrderBook();
         this.tradeRepository = tradeRepository;
+        this.messagingTemplate = messagingTemplate;
     }
 
     
@@ -61,15 +64,19 @@ public class OrderBookService {
 
         for(Trade trade : trades)
         {
-            UUID e_buyid = trade.getBuyOrderId();
-            UUID e_sellid = trade.getSellOrderId();
+            UUID e_buyid = trade.getBuyOrderID();
+            UUID e_sellid = trade.getSellOrderID();
             BigDecimal e_Price = trade.getPrice();
             Long e_quantity = trade.getQuantity();
             Instant e_time = trade.getTimestamp();
+            long e_seqNum = trade.getSequenceNum();
 
-            TradeEntity entity = new TradeEntity(e_buyid,e_sellid,e_Price,e_quantity,e_time);
+            TradeEntity entity = new TradeEntity(e_buyid,e_sellid,e_Price,e_quantity,e_time,e_seqNum);
             tradeRepository.save(entity);
+
+            messagingTemplate.convertAndSend("/topic/trades", trade);
         }
+        messagingTemplate.convertAndSend("/topic/book",orderBook.getBookDepth());
 
         return new PlaceOrderResult(order.getId(), trades);
     }
@@ -77,7 +84,9 @@ public class OrderBookService {
     
     public Optional<Order> cancelByID(UUID cancelid)
     {
-        return orderBook.cancelOrder(cancelid);
+        Optional<Order> cancelled = orderBook.cancelOrder(cancelid);
+        cancelled.ifPresent(order -> messagingTemplate.convertAndSend("/topic/book", orderBook.getBookDepth()));
+        return cancelled;
     }
 
     public OrderBook.BookDepth getBookDepth()

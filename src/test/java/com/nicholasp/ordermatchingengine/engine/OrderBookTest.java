@@ -31,8 +31,8 @@ class OrderBookTest {
         Trade trade = matchResult.get(0); //get the first element of match result and store it as a Trade
         assertEquals(50, trade.getQuantity()); //asserting quantity is 50
         assertEquals(0, trade.getPrice().compareTo(new BigDecimal("100"))); //assert the trade's price is equal to the value we created ("100")
-        assertEquals(buy.getId(), trade.getBuyOrderId()); //assert the trade's id is the same as our stored variable
-        assertEquals(sell.getId(), trade.getSellOrderId());//assert the trade's id is the same as our stored variable
+        assertEquals(buy.getId(), trade.getBuyOrderID()); //assert the trade's id is the same as our stored variable
+        assertEquals(sell.getId(), trade.getSellOrderID());//assert the trade's id is the same as our stored variable
     }
 
     @Test
@@ -152,8 +152,8 @@ class OrderBookTest {
         List<Trade> resting1 = book.submitOrder(sell1);
         List<Trade> resting2 = book.submitOrder(sell2);
         List<Trade> matching = book.submitOrder(buy); //populated with 2 successful trades
-        UUID trade1_ID = matching.get(0).getSellOrderId();
-        UUID trade2_ID = matching.get(1).getSellOrderId();
+        UUID trade1_ID = matching.get(0).getSellOrderID();
+        UUID trade2_ID = matching.get(1).getSellOrderID();
 
         assertEquals(0,resting1.size());
         assertEquals(0,resting2.size());

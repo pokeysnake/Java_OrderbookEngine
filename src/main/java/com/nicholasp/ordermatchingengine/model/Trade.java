@@ -12,8 +12,9 @@ public class Trade {
     private final BigDecimal price;
     private final long quantity;
     private final Instant timestamp;
+    private final long sequenceNum;
 
-    public Trade(UUID buyOrderID, UUID sellOrderID, BigDecimal price, long quantity)
+    public Trade(UUID buyOrderID, UUID sellOrderID, BigDecimal price, long quantity, long sequenceNum)
     {
         if(buyOrderID == null)
             throw new IllegalArgumentException("Buy order ID is required");
@@ -32,13 +33,14 @@ public class Trade {
         this.price = price;
         this.quantity = quantity;
         this.timestamp = Instant.now();
+        this.sequenceNum = sequenceNum;
     }
 
-    public UUID getBuyOrderId() {
+    public UUID getBuyOrderID() {
         return buyOrderID;
     }
 
-    public UUID getSellOrderId() {
+    public UUID getSellOrderID() {
         return sellOrderID;
     }
 
@@ -52,5 +54,10 @@ public class Trade {
 
     public Instant getTimestamp() {
         return timestamp;
+    }
+
+    public long getSequenceNum()
+    {
+        return sequenceNum;
     }
 }

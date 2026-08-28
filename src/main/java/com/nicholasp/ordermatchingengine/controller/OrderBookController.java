@@ -3,7 +3,6 @@ package com.nicholasp.ordermatchingengine.controller;
 import com.nicholasp.ordermatchingengine.engine.OrderBook;
 import com.nicholasp.ordermatchingengine.model.Order;
 import com.nicholasp.ordermatchingengine.model.OrderSide;
-import com.nicholasp.ordermatchingengine.repository.TradeEntity;
 import com.nicholasp.ordermatchingengine.service.OrderBookService;
 
 import org.springframework.http.HttpStatus;
@@ -58,12 +57,6 @@ public class OrderBookController {
     public ResponseEntity<OrderBook.BookDepth> getBookDepth()
     {
         return ResponseEntity.ok(orderBookService.getBookDepth());
-    }
-
-    @GetMapping("/trades")
-    public ResponseEntity<List<TradeEntity>> getAllTrades()
-    {
-        return ResponseEntity.ok(orderBookService.getAllTrades());
     }
 
 }
