@@ -28,6 +28,9 @@
 	</scm>
 	<properties>
 		<java.version>26</java.version>
+		<jmh.version>1.37</jmh.version>
+		<!-- JDK 23+ no longer runs annotation processors by default; JMH needs its processor to generate benchmark code -->
+		<maven.compiler.proc>full</maven.compiler.proc>
 	</properties>
 	<dependencies>
 
@@ -90,6 +93,20 @@
 			<groupId>io.gatling.highcharts</groupId>
 			<artifactId>gatling-charts-highcharts</artifactId>
 			<version>3.15.1</version>
+			<scope>test</scope>
+		</dependency>
+
+		<!-- JMH: microbenchmarks for the matching core (no HTTP / Spring / DB) -->
+		<dependency>
+			<groupId>org.openjdk.jmh</groupId>
+			<artifactId>jmh-core</artifactId>
+			<version>${jmh.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.openjdk.jmh</groupId>
+			<artifactId>jmh-generator-annprocess</artifactId>
+			<version>${jmh.version}</version>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>

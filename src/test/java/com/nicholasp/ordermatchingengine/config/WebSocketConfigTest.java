@@ -176,7 +176,27 @@ class WebSocketConfigTest {
         // the one that actually proves the fix.
         restTemplate.postForEntity(url, new PlaceOrderRequest(OrderSide.SELL, new BigDecimal("100"), 10), String.class);
 
-        OrderBook.BookDepth bookDepth = books.poll(5, TimeUnit.SECONDS);
+        // PREVIOUS (depth was broadcast synchronously after every order, so the
+        // first message was always the one caused by this POST):
+        // OrderBook.BookDepth bookDepth = books.poll(5, TimeUnit.SECONDS);
+        // assertNotNull(bookDepth, "expected a book depth update to be broadcast within the timeout");
+        // assertFalse(bookDepth.sellLevels().isEmpty(), "expected the resting SELL order to appear in the broadcast book");
+
+        // NEW: depth is now published on a 50 ms timer, so an earlier snapshot
+        // (e.g. left over from another test) can arrive first. Wait for the
+        // first update that contains the resting SELL order.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        OrderBook.BookDepth bookDepth = null;
+        while (System.nanoTime() < deadline) {
+            OrderBook.BookDepth next = books.poll(deadline - System.nanoTime(), TimeUnit.NANOSECONDS);
+            if (next == null) {
+                break;
+            }
+            bookDepth = next;
+            if (!next.sellLevels().isEmpty()) {
+                break;
+            }
+        }
 
         assertNotNull(bookDepth, "expected a book depth update to be broadcast within the timeout");
         assertFalse(bookDepth.sellLevels().isEmpty(), "expected the resting SELL order to appear in the broadcast book");

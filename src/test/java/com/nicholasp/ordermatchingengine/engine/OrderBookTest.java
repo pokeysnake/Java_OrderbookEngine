@@ -242,6 +242,39 @@ class OrderBookTest {
         assertEquals(0, depth.sellLevels().get(1).price().compareTo(new BigDecimal("100")));
         assertEquals(20, depth.sellLevels().get(1).totalQuantity());
 
-        
+
+    }
+
+    @Test
+    void levelTotalsTrackPartialFillsAndCancels()
+    {
+        OrderBook book = new OrderBook();
+        Order first = new Order(OrderSide.SELL, new BigDecimal("100"), 10);
+        Order second = new Order(OrderSide.SELL, new BigDecimal("100"), 10);
+        book.submitOrder(first);
+        book.submitOrder(second);
+
+        book.submitOrder(new Order(OrderSide.BUY, new BigDecimal("100"), 4)); // partially fills `first`
+        assertEquals(16, book.getBookDepth().sellLevels().get(0).totalQuantity());
+
+        assertEquals(Optional.of(second), book.cancelOrder(second.getId()));
+        assertEquals(6, book.getBookDepth().sellLevels().get(0).totalQuantity());
+
+        book.submitOrder(new Order(OrderSide.BUY, new BigDecimal("100"), 6)); // fully fills `first`
+        assertTrue(book.getBookDepth().sellLevels().isEmpty());
+        assertEquals(Optional.empty(), book.cancelOrder(first.getId())); // filled orders leave the index
+    }
+
+    @Test
+    void topNDepthLimitsLevels()
+    {
+        OrderBook book = new OrderBook();
+        for (int p = 101; p <= 120; p++) {
+            book.submitOrder(new Order(OrderSide.SELL, new BigDecimal(p), 1));
+        }
+        OrderBook.BookDepth top = book.getBookDepth(10);
+        assertEquals(10, top.sellLevels().size());
+        assertEquals(0, top.sellLevels().get(0).price().compareTo(new BigDecimal("101")));
+        assertEquals(20, book.getBookDepth().sellLevels().size());
     }
 }

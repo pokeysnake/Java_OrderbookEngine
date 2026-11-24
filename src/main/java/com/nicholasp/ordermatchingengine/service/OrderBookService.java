@@ -7,14 +7,20 @@ import com.nicholasp.ordermatchingengine.model.Trade;
 import com.nicholasp.ordermatchingengine.repository.TradeEntity;
 import com.nicholasp.ordermatchingengine.repository.TradeRepository;
 
+import jakarta.annotation.PreDestroy;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Application-facing entry point to the order matching engine.
@@ -25,13 +31,36 @@ import java.util.UUID;
  * turning raw request data into a valid domain {@link Order} before
  * delegating to the engine - the Controller layer should never construct
  * an {@link Order} itself.
+ * <p>
+ * Performance notes (2026-11-24, after JFR profiling):
+ * <ul>
+ *   <li>Trades are no longer saved on the request thread. They go on an
+ *   in-memory queue and a scheduled writer persists them in batches with
+ *   {@code saveAll}. JFR showed 97% of request-thread waits were on the
+ *   Hikari connection pool from one {@code save()} per trade.
+ *   Trade-off: a trade is acknowledged before it is durable (at most one
+ *   flush interval behind); the queue is drained on shutdown.</li>
+ *   <li>Book depth is no longer built and broadcast after every order and
+ *   cancel. Changes set a dirty flag and a scheduled task publishes the
+ *   top {@link #DEPTH_LEVELS} levels at most every 50 ms.</li>
+ * </ul>
  */
 @Service
 public class OrderBookService {
 
+    /** How many price levels per side the live /topic/book feed carries. */
+    static final int DEPTH_LEVELS = 10;
+    /** Max trades written in one batch. */
+    static final int BATCH_SIZE = 500;
+
     private final OrderBook orderBook;
     private final TradeRepository tradeRepository;
     private final SimpMessagingTemplate messagingTemplate;
+
+    // Trades waiting to be persisted by flushTrades().
+    private final BlockingQueue<TradeEntity> pendingTrades = new LinkedBlockingQueue<>();
+    // Set whenever the book changes; cleared when publishDepth() broadcasts.
+    private final AtomicBoolean depthDirty = new AtomicBoolean(false);
 
     public OrderBookService(TradeRepository tradeRepository, SimpMessagingTemplate messagingTemplate)
     {
@@ -40,7 +69,7 @@ public class OrderBookService {
         this.messagingTemplate = messagingTemplate;
     }
 
-    
+
 
     /**
      * The outcome of placing an order: the id assigned to it (so it can
@@ -72,6 +101,36 @@ public class OrderBookService {
             long e_seqNum = trade.getSequenceNum();
 
             TradeEntity entity = new TradeEntity(e_buyid,e_sellid,e_Price,e_quantity,e_time,e_seqNum);
+            // NEW: queue it; flushTrades() writes it in a batch off the request thread
+            pendingTrades.add(entity);
+
+            messagingTemplate.convertAndSend("/topic/trades", trade);
+        }
+        // NEW: mark depth as changed; publishDepth() broadcasts it on a timer
+        depthDirty.set(true);
+
+        return new PlaceOrderResult(order.getId(), trades);
+    }
+
+    /* PREVIOUS IMPLEMENTATION (before 2026-11-24): one synchronous DB write per
+       trade on the request thread, plus a full-book depth snapshot broadcast
+       after every single order.
+
+    public PlaceOrderResult placeOrder(OrderSide side, BigDecimal price, long quantity)
+    {
+        Order order = new Order(side, price, quantity);
+        List<Trade> trades = orderBook.submitOrder(order);
+
+        for(Trade trade : trades)
+        {
+            UUID e_buyid = trade.getBuyOrderID();
+            UUID e_sellid = trade.getSellOrderID();
+            BigDecimal e_Price = trade.getPrice();
+            Long e_quantity = trade.getQuantity();
+            Instant e_time = trade.getTimestamp();
+            long e_seqNum = trade.getSequenceNum();
+
+            TradeEntity entity = new TradeEntity(e_buyid,e_sellid,e_Price,e_quantity,e_time,e_seqNum);
             tradeRepository.save(entity);
 
             messagingTemplate.convertAndSend("/topic/trades", trade);
@@ -80,13 +139,60 @@ public class OrderBookService {
 
         return new PlaceOrderResult(order.getId(), trades);
     }
+    */
 
-    
+
+    public Optional<Order> cancelByID(UUID cancelid)
+    {
+        Optional<Order> cancelled = orderBook.cancelOrder(cancelid);
+        // NEW: mark depth as changed instead of broadcasting the whole book right away
+        cancelled.ifPresent(order -> depthDirty.set(true));
+        return cancelled;
+    }
+
+    /* PREVIOUS IMPLEMENTATION (before 2026-11-24):
+
     public Optional<Order> cancelByID(UUID cancelid)
     {
         Optional<Order> cancelled = orderBook.cancelOrder(cancelid);
         cancelled.ifPresent(order -> messagingTemplate.convertAndSend("/topic/book", orderBook.getBookDepth()));
         return cancelled;
+    }
+    */
+
+    /**
+     * Persists queued trades in batches. Runs on Spring's scheduler thread,
+     * so request threads never wait on Postgres.
+     */
+    @Scheduled(fixedDelay = 10)
+    public void flushTrades()
+    {
+        List<TradeEntity> batch = new ArrayList<>(BATCH_SIZE);
+        while (pendingTrades.drainTo(batch, BATCH_SIZE) > 0)
+        {
+            tradeRepository.saveAll(batch);
+            batch.clear();
+        }
+    }
+
+    /**
+     * Broadcasts the top of the book at most every 50 ms, and only if
+     * something changed since the last broadcast.
+     */
+    @Scheduled(fixedRate = 50)
+    public void publishDepth()
+    {
+        if (depthDirty.getAndSet(false))
+        {
+            messagingTemplate.convertAndSend("/topic/book", orderBook.getBookDepth(DEPTH_LEVELS));
+        }
+    }
+
+    /** Writes any trades still queued when the app shuts down. */
+    @PreDestroy
+    public void shutdown()
+    {
+        flushTrades();
     }
 
     public OrderBook.BookDepth getBookDepth()
@@ -96,6 +202,7 @@ public class OrderBookService {
 
     public List<TradeEntity> getAllTrades()
     {
+        // Trades still in the queue (at most ~10 ms old) aren't visible here yet.
         return tradeRepository.findAll();
     }
 }
