@@ -4,7 +4,7 @@ A single-instrument limit order book with price-time priority matching, exposed 
 
 ## What it does
 
-Orders arrive over HTTP. The engine matches each incoming order against the opposite side of the book for as long as a price match exists, generating trades along the way. Whatever quantity is left over rests in the book waiting for a counter-order. Every trade is persisted and broadcast to subscribed WebSocket clients in real time.
+Orders arrive over HTTP. The engine matches each incoming order against the opposite side of the book for as long as a price match exists, generating trades along the way. Whatever quantity is left over rests in the book waiting for a counter-order. Every trade is broadcast to subscribed WebSocket clients in real time and persisted to PostgreSQL by a batched background writer, so request threads never wait on the database.
 
 The matching rules:
 
@@ -20,7 +20,7 @@ The book is guarded by a `ReentrantReadWriteLock`. Depth reads can run concurren
 ```
 HTTP  --->  OrderBookController  --->  OrderBookService  --->  OrderBook (engine)
                                             |                      |
-                                            +---> TradeRepository ---> PostgreSQL
+                                            +---> trade queue ---> batch writer ---> TradeRepository ---> PostgreSQL
                                             |
                                             +---> SimpMessagingTemplate ---> /topic/trades
                                                                              /topic/book
@@ -29,8 +29,8 @@ HTTP  --->  OrderBookController  --->  OrderBookService  --->  OrderBook (engine
 | Layer | Responsibility |
 | --- | --- |
 | `controller/` | HTTP mapping, status codes, request records. Never constructs a domain `Order` itself. |
-| `service/OrderBookService` | Owns the single shared `OrderBook` bean, builds validated orders, persists and broadcasts trades. |
-| `engine/OrderBook` | Pure matching logic over a `TreeMap<BigDecimal, Deque<Order>>` per side. No Spring dependencies. |
+| `service/OrderBookService` | Owns the single shared `OrderBook` bean, builds validated orders, broadcasts trades, queues them for batched persistence (`saveAll` every 10 ms) and publishes a throttled top-10 depth feed. |
+| `engine/OrderBook` | Pure matching logic over a `TreeMap<BigDecimal, Level>` per side, where each `Level` is a FIFO `Deque<Order>` plus a running total quantity. A `UUID -> Order` index makes cancel lookups O(1). No Spring dependencies. |
 | `model/` | `Order`, `Trade`, `OrderSide`. Validation lives in the constructors. |
 | `repository/` | JPA `TradeEntity` and `TradeRepository`. |
 
@@ -70,14 +70,14 @@ curl -X POST http://localhost:8080/api/orders \
 Connect to `ws://localhost:8080/ws` and subscribe to:
 
 * `/topic/trades` for every trade execution as it happens
-* `/topic/book` for a full depth snapshot after every order placement or cancellation
+* `/topic/book` for the top 10 price levels per side, published at most every 50 ms when the book has changed (`GET /api/orders/book` still returns full depth)
 
 ## Running it
 
 You'll need Java 26 and Docker for the database.
 
 ```bash
-docker compose up -d          # PostgreSQL 16 on :5432
+docker compose up -d postgres # PostgreSQL 16 on :5432
 ./mvnw spring-boot:run        # app on :8080
 ```
 
@@ -101,58 +101,70 @@ Load is generated with [Gatling](https://gatling.io). The simulation lives in [`
 
 ### Results
 
-Two runs against the same build on the same machine: a light run to establish a clean baseline, and a heavy run at 10x the load.
+Both runs use the same 100,000-request heavy scenario (2,000 users ramped over 20 s, 50 orders each) against the packaged jar, with Postgres in Docker, on the same machine. **Before** is the original code. **After** is the version with the fixes described below.
+
+| Run | Requests | Failures | Throughput | p50 | p95 | p99 | Max |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Before | 100,000 | 0 | 2,326 req/s | 518 ms | 848 ms | 1,010 ms | 2,495 ms |
+| **After** | 100,000 | 0 | **5,000 req/s** | **<1 ms** | **3 ms** | **87 ms** | 1,218 ms |
+
+The after run reaches the scenario's full offered rate (100,000 requests in 20 s), so the server is no longer the limiting factor at this load. p99 dropped about 11.6x.
+
+### Finding the bottleneck
+
+An earlier version of this README called the app CPU-bound. Profiling showed that was wrong. A Java Flight Recorder (JFR) recording of the before run showed:
+
+* **97% of thread waits (44,215 of 45,596) were request threads blocked in `HikariPool.getConnection()`.** Every trade did a synchronous `tradeRepository.save()` on the request thread, so up to 200 Tomcat threads queued for Hikari's 10 connections.
+* **`spring.jpa.show-sql=true` was the top lock-contention site.** Printing every INSERT to the console serialized threads on `PrintStream`.
+* **`getBookDepth()` was the #1 CPU method (16% of samples).** It walked every resting order to build a full-book snapshot, then broadcast that snapshot after every order and cancel.
+
+### What changed
+
+1. **Batched, asynchronous trade persistence.** Trades go on an in-memory queue. A scheduled writer drains it every 10 ms and saves batches of up to 500 with `saveAll`, using Hibernate JDBC batching and the Postgres driver's `reWriteBatchedInserts`. The queue is flushed on shutdown. Trade-off: a trade is acknowledged before it's durable, at most one flush interval behind.
+2. **SQL console logging off** (`show-sql=false`).
+3. **Incremental depth.** Each price level keeps a running total quantity, updated on add, fill and cancel, so depth costs O(levels) instead of O(orders). The WebSocket feed publishes only the top 10 levels per side, at most every 50 ms.
+4. **O(1) cancel lookup.** A `UUID -> Order` index replaces the linear scan of both sides under the write lock.
+
+### Core engine microbenchmarks (JMH)
+
+[`OrderBookBenchmark`](src/test/java/com/nicholasp/ordermatchingengine/bench/OrderBookBenchmark.java) measures `OrderBook` on its own: no HTTP, Spring or database, single thread, with orders pre-built so object construction isn't timed.
+
+| Benchmark | Before | After |
+| --- | --- | --- |
+| `submitOrder` (Gatling-like mix, mostly crossing) | 8.7M orders/s, p99 0.4 µs | 5.7M orders/s, p99 0.7 µs |
+| Cancel + re-rest on a 10,000-order book | 57K ops/s, p99 106 µs | **3.0M ops/s, p99 0.8 µs** |
+
+Cancel is about 53x faster in throughput and about 130x faster at p99. Submit is a little slower because each resting order is now also kept in the cancel index. That's a deliberate trade for constant-time cancels.
+
+```bash
+./mvnw test-compile
+./mvnw exec:exec -Dexec.executable=java -Dexec.classpathScope=test   "-Dexec.args=-cp %classpath org.openjdk.jmh.Main OrderBookBenchmark"
+```
+
+### Caveats
+
+* The load generator and the app ran on the same machine and shared CPU cores, so the absolute numbers are pessimistic. A rigorous benchmark would put Gatling on a separate host.
+* The Gatling scenario sends no cancels, so the cancel improvement shows up only in JMH.
+* The before run was recorded with JFR enabled and the after run without it. JFR's overhead is roughly 1–2%.
+
+<details>
+<summary>Original pre-optimization runs (Aug 2026)</summary>
 
 | Run | Users / Ramp | Requests | Failures | Throughput | p50 | p95 | p99 | Max |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Light | 200 / 30s | 10,000 | 0 | 333 req/s | 1 ms | 10 ms | 14 ms | 196 ms |
 | Heavy | 2,000 / 20s | 100,000 | 0 | 1,667 req/s | 874 ms | 1,246 ms | 1,394 ms | 2,060 ms |
 
-Light, 10,000 requests, 0 KO:
-
 ![Gatling summary, light run](Screenshots/gatling-summary-10k.png)
-
-Heavy, 100,000 requests, 0 KO:
-
 ![Gatling summary, heavy run](Screenshots/gatling-summary-100k.png)
-
-Throughput scaled 5x and the failure count stayed at zero in both runs. Under a 10x load increase the app degrades gracefully. It gets slower, but it doesn't error out or drop requests.
-
-### Where the latency goes
-
-The two response-time distributions show the shape of that degradation, and they're worth reading against each other. Note the x-axis scales: 1 to 158 ms versus 10 to 1,658 ms.
-
-![Response time distribution, light run](Screenshots/gatling-response-time-distribution-10k.png)
-
-At 333 req/s the book is essentially free. Over half of all requests land in the first bucket, the whole distribution collapses into a spike under about 20 ms, and the thin tail is gone by 40 ms.
-
 ![Response time distribution, heavy run](Screenshots/gatling-response-time-distribution-100k.png)
 
-At 1,667 req/s the same work spreads into a bimodal curve. That spike at the far left is the start of the run before the ramp saturates, which is the light run's behavior still visible underneath. The two humps around 850 ms and 1,150 ms are the loaded steady state.
-
-![Response time ranges, heavy run](Screenshots/gatling-response-time-ranges-100k.png)
-
-Bucketed, the heavy run puts roughly 41k requests under 800 ms and 50k between 800 and 1,200 ms, with a 9k tail beyond 1,200 ms and nothing at all in the failed column. The light run's equivalent chart is a single bar: 10,000 requests, all under 800 ms.
-
-![Response time against global throughput, heavy run](Screenshots/gatling-latency-vs-throughput-100k.png)
-
-Latency climbs with concurrency and then flattens out between 1,400 and 2,000 req/s rather than running away. The system is saturating, not collapsing.
-
-### What the numbers actually mean
-
-Latency was highest early in the heavy run and improved as it went on, which points at JVM and connection-pool warm-up rather than sustained overload. The steady-state latency later in the run is the more representative figure.
-
-The DB connection pool isn't the bottleneck. No HikariPool exhaustion warnings showed up in the server logs for the duration of the run.
-
-The app is CPU-bound under load rather than blocked on locks or I/O. Per-process profiling showed one `java.exe` sustaining 80 to 90% CPU for exactly the duration of the heavy test and sitting idle before and after. That's consistent with real compute work (JSON serialization happening two to three times per trade, GC churn from object allocation) rather than threads waiting around on something.
-
-### One caveat worth stating
-
-The load generator and the application under test ran on the same machine, sharing CPU cores. Since the app is CPU-bound, Gatling was competing with it for exactly the resource that limits it, so the heavy-run latency figures are pessimistic and the throughput ceiling is understated. A properly rigorous benchmark would put the generator on a separate host.
+</details>
 
 ## Known limitations
 
 * Single instrument. The book has no symbol dimension.
 * Limit orders only. No market, IOC, or FOK order types.
 * The book lives in memory. Trades survive a restart, resting orders don't.
-* `cancelOrder` scans both sides linearly to find an id. An id-to-order index would make it O(1).
+* Removing a cancelled order from its price level is O(orders at that price), because levels are `ArrayDeque`s. An intrusive linked list would make the removal O(1) as well.
+* Trade persistence is asynchronous, so a crash can lose up to one flush interval (~10 ms) of acknowledged trades.
