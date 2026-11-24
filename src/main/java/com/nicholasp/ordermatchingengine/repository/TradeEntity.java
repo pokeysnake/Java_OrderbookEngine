@@ -50,11 +50,17 @@ public class TradeEntity {
         if(quantity <= 0)
             throw new IllegalArgumentException("Trade quantity must be greater than zero");
 
+        if(timestamp == null)
+            throw new IllegalArgumentException("Trade timestamp is required");
+
         this.buyOrderID = buyOrderID;
         this.sellOrderID = sellOrderID;
         this.price = price;
         this.quantity = quantity;
-        this.timestamp = Instant.now();
+        // PREVIOUS: this.timestamp = Instant.now();
+        // (ignored the argument, so the saved time was when the entity was built,
+        //  not when the trade executed - and with batching those differ)
+        this.timestamp = timestamp;
         this.sequenceNum = sequenceNum;
     }
 

@@ -167,4 +167,4 @@ Cancel is about 53x faster in throughput and about 130x faster at p99. Submit is
 * Limit orders only. No market, IOC, or FOK order types.
 * The book lives in memory. Trades survive a restart, resting orders don't.
 * Removing a cancelled order from its price level is O(orders at that price), because levels are `ArrayDeque`s. An intrusive linked list would make the removal O(1) as well.
-* Trade persistence is asynchronous, so a crash can lose up to one flush interval (~10 ms) of acknowledged trades.
+* Trade persistence is asynchronous, so a crash can lose up to one flush interval (~10 ms) of acknowledged trades. A failed batch write is re-queued and retried on the next flush, but there's no backoff or queue bound yet, so a long database outage grows the queue in memory.

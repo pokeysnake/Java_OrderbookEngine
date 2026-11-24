@@ -8,6 +8,8 @@ import com.nicholasp.ordermatchingengine.repository.TradeEntity;
 import com.nicholasp.ordermatchingengine.repository.TradeRepository;
 
 import jakarta.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -53,12 +55,19 @@ public class OrderBookService {
     /** Max trades written in one batch. */
     static final int BATCH_SIZE = 500;
 
+    private static final Logger log = LoggerFactory.getLogger(OrderBookService.class);
+
     private final OrderBook orderBook;
     private final TradeRepository tradeRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
-    // Trades waiting to be persisted by flushTrades().
-    private final BlockingQueue<TradeEntity> pendingTrades = new LinkedBlockingQueue<>();
+    // Trades waiting to be persisted by flushTrades(). Holds the immutable domain
+    // Trade, not TradeEntity: entities are built fresh at flush time, so a batch
+    // that failed and is retried gets new entities (Hibernate assigns the id on
+    // the first save attempt, and a rolled-back entity that already has an id
+    // would be treated as an existing row on retry).
+    // PREVIOUS: private final BlockingQueue<TradeEntity> pendingTrades = new LinkedBlockingQueue<>();
+    private final BlockingQueue<Trade> pendingTrades = new LinkedBlockingQueue<>();
     // Set whenever the book changes; cleared when publishDepth() broadcasts.
     private final AtomicBoolean depthDirty = new AtomicBoolean(false);
 
@@ -93,16 +102,9 @@ public class OrderBookService {
 
         for(Trade trade : trades)
         {
-            UUID e_buyid = trade.getBuyOrderID();
-            UUID e_sellid = trade.getSellOrderID();
-            BigDecimal e_Price = trade.getPrice();
-            Long e_quantity = trade.getQuantity();
-            Instant e_time = trade.getTimestamp();
-            long e_seqNum = trade.getSequenceNum();
-
-            TradeEntity entity = new TradeEntity(e_buyid,e_sellid,e_Price,e_quantity,e_time,e_seqNum);
-            // NEW: queue it; flushTrades() writes it in a batch off the request thread
-            pendingTrades.add(entity);
+            // NEW: queue it; flushTrades() turns it into a TradeEntity and writes
+            // it in a batch off the request thread
+            pendingTrades.add(trade);
 
             messagingTemplate.convertAndSend("/topic/trades", trade);
         }
@@ -167,6 +169,38 @@ public class OrderBookService {
     @Scheduled(fixedDelay = 10)
     public void flushTrades()
     {
+        List<Trade> batch = new ArrayList<>(BATCH_SIZE);
+        while (pendingTrades.drainTo(batch, BATCH_SIZE) > 0)
+        {
+            List<TradeEntity> entities = new ArrayList<>(batch.size());
+            for (Trade trade : batch)
+            {
+                entities.add(toEntity(trade));
+            }
+            try
+            {
+                tradeRepository.saveAll(entities);
+            }
+            catch (RuntimeException e)
+            {
+                // NEW: the batch was already drained, so without this a DB error
+                // would drop these trades for good. Put them back and stop for this
+                // run; the next run (10 ms later) retries them with fresh entities.
+                // saveAll runs in one transaction, so the failed batch was rolled
+                // back as a whole and the retry can't create duplicates.
+                pendingTrades.addAll(batch);
+                log.warn("Trade flush failed, re-queued {} trades for retry: {}", batch.size(), e.getMessage());
+                return;
+            }
+            batch.clear();
+        }
+    }
+
+    /* PREVIOUS flushTrades (a failed saveAll lost the drained batch):
+
+    @Scheduled(fixedDelay = 10)
+    public void flushTrades()
+    {
         List<TradeEntity> batch = new ArrayList<>(BATCH_SIZE);
         while (pendingTrades.drainTo(batch, BATCH_SIZE) > 0)
         {
@@ -174,6 +208,7 @@ public class OrderBookService {
             batch.clear();
         }
     }
+    */
 
     /**
      * Broadcasts the top of the book at most every 50 ms, and only if
@@ -186,6 +221,12 @@ public class OrderBookService {
         {
             messagingTemplate.convertAndSend("/topic/book", orderBook.getBookDepth(DEPTH_LEVELS));
         }
+    }
+
+    private static TradeEntity toEntity(Trade trade)
+    {
+        return new TradeEntity(trade.getBuyOrderID(), trade.getSellOrderID(), trade.getPrice(),
+                trade.getQuantity(), trade.getTimestamp(), trade.getSequenceNum());
     }
 
     /** Writes any trades still queued when the app shuts down. */
